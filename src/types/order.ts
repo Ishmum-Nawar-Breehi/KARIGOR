@@ -5,15 +5,16 @@ export type OrderStatusCode =
   | 'pending_confirmation'
   | 'measurements_confirmed'
   | 'stitching_in_progress'
+  | 'fabric_short'
   | 'out_for_delivery'
   | 'completed'
   | 'cancelled';
 
+export type FabricShortageResolution = 'send_additional_fabric' | 'contact_tailor' | 'tailor_adjust';
+
 export type MeasurementMode = 'sample' | 'manual';
 
 export type CourierProvider = 'pathao' | 'steadfast';
-
-export type ReturnMethod = 'pathao' | 'steadfast' | 'pickup';
 
 export type MeasurementUnit = 'inches' | 'cm';
 
@@ -50,6 +51,7 @@ export type Order = {
   estimated_cod_on_return_bdt: number;
   order_status: OrderStatusCode;
   customer_notes: string | null;
+  fabric_shortage_resolution: FabricShortageResolution | null;
   is_demo: boolean;
   created_at: string;
   updated_at: string;

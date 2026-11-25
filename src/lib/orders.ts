@@ -1,4 +1,4 @@
-import type { CourierProvider, OrderStatusCode, ReturnMethod } from '@/types/order';
+import type { CourierProvider, FabricShortageResolution, OrderStatusCode } from '@/types/order';
 
 export const ORDER_STATUS_LABELS: Record<OrderStatusCode, string> = {
   pending_pickup: 'Pending Pickup',
@@ -7,6 +7,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatusCode, string> = {
   pending_confirmation: 'Pending Confirmation',
   measurements_confirmed: 'Measurements Confirmed',
   stitching_in_progress: 'Stitching in Progress',
+  fabric_short: 'Fabric Short',
   out_for_delivery: 'Out for Delivery',
   completed: 'Completed',
   cancelled: 'Cancelled',
@@ -19,6 +20,7 @@ export const ORDER_STATUS_FLOW: OrderStatusCode[] = [
   'pending_confirmation',
   'measurements_confirmed',
   'stitching_in_progress',
+  'fabric_short',
   'out_for_delivery',
   'completed',
 ];
@@ -31,6 +33,7 @@ export function statusBadgeClass(code: OrderStatusCode): string {
   if (code === 'completed') return 'order-status-badge completed';
   if (code === 'cancelled') return 'order-status-badge cancelled';
   if (code === 'out_for_delivery') return 'order-status-badge active';
+  if (code === 'fabric_short') return 'order-status-badge cancelled';
   if (code === 'stitching_in_progress' || code === 'measurements_confirmed' || code === 'fabric_received')
     return 'order-status-badge progress';
   return 'order-status-badge pending';
@@ -54,10 +57,10 @@ export const COURIER_CONFIG: Record<
   },
 };
 
-export const RETURN_METHOD_LABELS: Record<ReturnMethod, string> = {
-  pathao: 'Pathao Delivery',
-  steadfast: 'Steadfast Delivery',
-  pickup: 'Collect from Tailor Shop',
+export const FABRIC_SHORTAGE_LABELS: Record<FabricShortageResolution, string> = {
+  send_additional_fabric: 'Customer sends additional fabric',
+  contact_tailor: 'Customer contacts tailor',
+  tailor_adjust: 'Tailor adjusts order details and price',
 };
 
 export function courierFee(provider: CourierProvider, direction: 'outbound' | 'return'): number {

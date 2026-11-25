@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, SearchX } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { OrderPlacementForm } from '@/components/OrderPlacementForm';
+import type { MeasurementMode } from '@/types/order';
 import type { TailorServiceRate } from '@/types/service';
 
 type Props = {
@@ -16,6 +17,8 @@ export function NewOrderPage({ customer, onLoginRequest, showToast }: Props) {
   const navigate = useNavigate();
   const tailorId = params.get('tailor') ?? '';
   const rateId = params.get('service') ?? '';
+  const modeParam = params.get('mode') ?? 'sample';
+  const initialMode: MeasurementMode = modeParam === 'manual' ? 'manual' : 'sample';
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tailorName, setTailorName] = useState('');
@@ -50,6 +53,7 @@ export function NewOrderPage({ customer, onLoginRequest, showToast }: Props) {
         tailorName={tailorName}
         rate={rate}
         customerId={customer?.id ?? ''}
+        initialMode={initialMode}
         onLoginRequest={onLoginRequest}
         onSuccess={(orderId) => { showToast('Your order has been placed successfully!'); navigate(`/order/${orderId}`); }}
       />

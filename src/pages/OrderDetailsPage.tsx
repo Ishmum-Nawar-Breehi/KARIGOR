@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, MapPin, Phone, RefreshCw, SearchX } from 'lucide
 import { supabase } from '@/lib/supabase';
 import { formatServicePrice } from '@/lib/formatting';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
-import { COURIER_CONFIG, ORDER_STATUS_FLOW, statusLabel } from '@/lib/orders';
+import { COURIER_CONFIG, FABRIC_SHORTAGE_LABELS, ORDER_STATUS_FLOW, statusLabel } from '@/lib/orders';
 import { formatMeasurementValue } from '@/lib/measurements';
 import type { Order, OrderStatusCode } from '@/types/order';
 
@@ -97,6 +97,7 @@ export function OrderDetailsPage() {
           {order.pickup_address && <div className="detail-row"><span>Pickup Address</span><strong>{order.pickup_address}</strong></div>}
           {order.return_address && <div className="detail-row"><span>Return Address</span><strong>{order.return_address}</strong></div>}
           {order.fabric_arrangement && <div className="detail-row"><span>Fabric Arrangement</span><strong>{order.fabric_arrangement === 'ask_tailor' ? 'Ask tailor about fabric' : 'Self-arranged'}</strong></div>}
+        {order.fabric_shortage_resolution && <div className="detail-row"><span>Short Fabric Preference</span><strong>{FABRIC_SHORTAGE_LABELS[order.fabric_shortage_resolution] ?? order.fabric_shortage_resolution}</strong></div>}
         </section>
 
         {order.manual_measurements && (

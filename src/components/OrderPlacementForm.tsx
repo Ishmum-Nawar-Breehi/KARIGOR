@@ -2,11 +2,10 @@ import { useState, type FormEvent } from 'react';
 import { ArrowRight, Info, Package } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatServicePrice } from '@/lib/formatting';
-import type { CourierProvider, ManualMeasurements, MeasurementMode, ReturnMethod } from '@/types/order';
+import type { CourierProvider, FabricShortageResolution, ManualMeasurements, MeasurementMode } from '@/types/order';
 import type { TailorServiceRate } from '@/types/service';
-import { RETURN_METHOD_LABELS, courierFee } from '@/lib/orders';
+import { courierFee } from '@/lib/orders';
 import { getMeasurementFields, validateMeasurementValue } from '@/lib/measurements';
-import { MeasurementMethodSelector } from '@/components/MeasurementMethodSelector';
 import { CourierSelector } from '@/components/CourierSelector';
 import { OrderPriceSummary } from '@/components/OrderPriceSummary';
 import { ManualMeasurementsForm } from '@/components/ManualMeasurementsForm';
@@ -16,38 +15,52 @@ type Props = {
   tailorName: string;
   rate: TailorServiceRate;
   customerId: string;
+  initialMode: MeasurementMode;
   onLoginRequest: () => void;
   onSuccess: (orderId: string) => void;
 };
 
-export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, onLoginRequest, onSuccess }: Props) {
-  const [mode, setMode] = useState<MeasurementMode>('sample');
+const ALTERATION_SERVICES = new Set([
+  'Dress Alteration', 'Shirt/Top Alteration', 'Pant/Trouser Hemming',
+  'Zipper/Stitching Repair', 'Size Fitting/Resizing',
+]);
+
+export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, initialMode, onLoginRequest, onSuccess }: Props) {
+  const [mode] = useState<MeasurementMode>(initialMode);
   const [pickupAddress, setPickupAddress] = useState('');
   const [returnSame, setReturnSame] = useState(true);
   const [returnAddress, setReturnAddress] = useState('');
   const [courier, setCourier] = useState<CourierProvider>('pathao');
   const [sampleConfirmed, setSampleConfirmed] = useState(false);
   const [notes, setNotes] = useState('');
-  const [returnMethod, setReturnMethod] = useState<ReturnMethod>('pathao');
   const [measurements, setMeasurements] = useState<ManualMeasurements>({ unit: 'inches' });
   const [fabricArrangement, setFabricArrangement] = useState('');
+  const [fabricShortage, setFabricShortage] = useState<FabricShortageResolution | ''>('');
   const [prototypeConfirmed, setPrototypeConfirmed] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const pickupFee = mode === 'sample' ? courierFee(courier, 'outbound') : 0;
-  const returnFee = mode === 'manual' && returnMethod === 'pickup' ? 0 : courierFee(mode === 'manual' ? (returnMethod as CourierProvider) : courier, 'return');
-  const showCod = mode === 'sample' || (mode === 'manual' && returnMethod !== 'pickup');
+  const isAlteration = ALTERATION_SERVICES.has(rate.service_name);
+  const pickupFee = courierFee(courier, 'outbound');
+  const returnFee = courierFee(courier, 'return');
+
+  const pickupLabel = isAlteration ? 'Pickup Address (existing garment)' : 'Pickup Address (unstitched cloth' + (mode === 'sample' ? ' + sample garment' : '') + ')';
+  const packageConfirmText = isAlteration
+    ? 'I will provide the existing garment to be altered.'
+    : mode === 'sample'
+      ? 'I will provide one sample garment and the unstitched fabric needed for this order.'
+      : 'I will provide the unstitched fabric needed for this order.';
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!customerId) { onLoginRequest(); return; }
     setError('');
 
+    if (!pickupAddress.trim()) return setError('Please provide a pickup address.');
+    if (!courier) return setError('Please select a courier.');
+
     if (mode === 'sample') {
-      if (!pickupAddress.trim()) return setError('Please provide a pickup address.');
       if (!sampleConfirmed) return setError('Please confirm you will provide the sample garment and unstitched fabric.');
-      if (!courier) return setError('Please select a courier.');
     } else {
       const fields = getMeasurementFields(rate.service_name);
       for (const field of fields) {
@@ -57,16 +70,13 @@ export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, onL
           return setError(`${field.label} must be a positive value within reasonable limits.`);
       }
       if (!fabricArrangement) return setError('Please select a fabric arrangement option.');
-      if (returnMethod !== 'pickup') {
-        if (!returnAddress.trim()) return setError('Please provide a return delivery address.');
-      }
     }
+
+    if (!fabricShortage) return setError('Please select a fabric shortage resolution preference.');
     if (!prototypeConfirmed) return setError('Please confirm you understand this is a prototype order.');
 
-    const finalReturnAddress = mode === 'sample'
-      ? (returnSame ? pickupAddress : returnAddress)
-      : (returnMethod === 'pickup' ? null : returnAddress);
-    if (finalReturnAddress !== null && !finalReturnAddress.trim()) return setError('Please provide a return address.');
+    const finalReturnAddress = returnSame ? pickupAddress : returnAddress;
+    if (!finalReturnAddress.trim()) return setError('Please provide a return address.');
 
     setSaving(true);
     const result = await supabase.rpc('place_order', {
@@ -76,12 +86,13 @@ export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, onL
       p_measurement_mode: mode,
       p_manual_measurements: mode === 'manual' ? measurements : null,
       p_fabric_arrangement: mode === 'manual' ? fabricArrangement : null,
-      p_courier_provider: mode === 'sample' ? courier : (mode === 'manual' && returnMethod !== 'pickup' ? returnMethod : null),
-      p_pickup_address: mode === 'sample' ? pickupAddress.trim() : null,
-      p_return_address: finalReturnAddress?.trim() ?? null,
+      p_courier_provider: courier,
+      p_pickup_address: pickupAddress.trim(),
+      p_return_address: finalReturnAddress.trim(),
       p_pickup_delivery_fee_bdt: pickupFee,
       p_return_delivery_fee_bdt: returnFee,
       p_customer_notes: notes.trim() || null,
+      p_fabric_shortage_resolution: fabricShortage,
     });
 
     if (result.error || !result.data) {
@@ -101,48 +112,43 @@ export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, onL
           <div><span>Selected Service</span><strong>{rate.service_name}</strong></div>
           <div><span>Stitching Price</span><strong>{formatServicePrice(rate.price_bdt)}</strong></div>
           <div><span>Estimated Completion</span><strong>{rate.turnaround_min_days}–{rate.turnaround_max_days} days</strong></div>
+          <div><span>Measurement Method</span><strong>{mode === 'sample' ? 'Send Sample + Cloth' : 'Manual Measurements'}</strong></div>
         </div>
       </div>
 
       <section className="order-section">
-        <h3>Choose Measurement Method</h3>
-        <MeasurementMethodSelector value={mode} onChange={setMode} />
+        <h3>Pickup & Return Delivery</h3>
+        <p className="muted">{isAlteration ? 'Your existing garment will be picked up for alteration and returned via the selected courier.' : 'Your unstitched cloth' + (mode === 'sample' ? ' and sample garment' : '') + ' will be picked up and the completed garment returned via the selected courier.'}</p>
+        <label>{pickupLabel} <span className="required-asterisk">*</span>
+          <textarea value={pickupAddress} onChange={(e) => setPickupAddress(e.target.value)} maxLength={300} rows={2} placeholder="House, Road, Area, Dhaka" />
+        </label>
+        <label className="checkbox-label">
+          <input type="checkbox" checked={returnSame} onChange={(e) => setReturnSame(e.target.checked)} />
+          Use pickup address for return delivery.
+        </label>
+        {!returnSame && (
+          <label>Return Delivery Address <span className="required-asterisk">*</span>
+            <textarea value={returnAddress} onChange={(e) => setReturnAddress(e.target.value)} maxLength={300} rows={2} placeholder="House, Road, Area, Dhaka" />
+          </label>
+        )}
+        <CourierSelector value={courier} onChange={setCourier} />
+        <label className="checkbox-label">
+          <input type="checkbox" checked={sampleConfirmed} onChange={(e) => setSampleConfirmed(e.target.checked)} />
+          {packageConfirmText}
+        </label>
       </section>
 
       {mode === 'sample' && (
-        <>
-          <section className="order-section">
-            <h3>Sample & Fabric Shipment Details</h3>
-            <label>Pickup Address <span className="required-asterisk">*</span>
-              <textarea value={pickupAddress} onChange={(e) => setPickupAddress(e.target.value)} maxLength={300} rows={2} placeholder="House, Road, Area, Dhaka" />
-            </label>
-            <label className="checkbox-label">
-              <input type="checkbox" checked={returnSame} onChange={(e) => setReturnSame(e.target.checked)} />
-              Use pickup address for return delivery.
-            </label>
-            {!returnSame && (
-              <label>Return Delivery Address <span className="required-asterisk">*</span>
-                <textarea value={returnAddress} onChange={(e) => setReturnAddress(e.target.value)} maxLength={300} rows={2} placeholder="House, Road, Area, Dhaka" />
-              </label>
-            )}
-            <CourierSelector value={courier} onChange={setCourier} />
-            <label className="checkbox-label">
-              <input type="checkbox" checked={sampleConfirmed} onChange={(e) => setSampleConfirmed(e.target.checked)} />
-              I will provide one sample garment and the unstitched fabric needed for this order.
-            </label>
-          </section>
-
-          <section className="order-section info-panel">
-            <h3><Info size={16} /> How sample-based tailoring works</h3>
-            <ol>
-              <li>Pack a well-fitting sample garment together with the unstitched cloth.</li>
-              <li>Arrange delivery through the selected courier after coordinating with the tailor.</li>
-              <li>The tailor uses your sample to determine measurements.</li>
-              <li>After stitching, your completed garment and original sample are returned together.</li>
-              <li>Pay the agreed amount when receiving the return parcel if the COD arrangement is confirmed.</li>
-            </ol>
-          </section>
-        </>
+        <section className="order-section info-panel">
+          <h3><Info size={16} /> How sample-based tailoring works</h3>
+          <ol>
+            <li>Pack a well-fitting sample garment together with the unstitched cloth.</li>
+            <li>Arrange delivery through the selected courier after coordinating with the tailor.</li>
+            <li>The tailor uses your sample to determine measurements.</li>
+            <li>After stitching, your completed garment and original sample are returned together.</li>
+            <li>Pay the agreed amount when receiving the return parcel if the COD arrangement is confirmed.</li>
+          </ol>
+        </section>
       )}
 
       {mode === 'manual' && (
@@ -166,25 +172,27 @@ export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, onL
               </label>
             </div>
           </section>
-
-          <section className="order-section">
-            <h3>Return Method</h3>
-            <div className="return-method-grid">
-              {(Object.keys(RETURN_METHOD_LABELS) as ReturnMethod[]).map((method) => (
-                <button type="button" key={method} className={`return-method-card ${returnMethod === method ? 'selected' : ''}`} onClick={() => setReturnMethod(method)}>
-                  {RETURN_METHOD_LABELS[method]}
-                </button>
-              ))}
-            </div>
-            {returnMethod !== 'pickup' && (
-              <label>Return Delivery Address <span className="required-asterisk">*</span>
-                <textarea value={returnAddress} onChange={(e) => setReturnAddress(e.target.value)} maxLength={300} rows={2} placeholder="House, Road, Area, Dhaka" />
-              </label>
-            )}
-            {returnMethod === 'pickup' && <p className="muted">You must coordinate collection directly with the tailor.</p>}
-          </section>
         </>
       )}
+
+      <section className="order-section">
+        <h3>Short Fabric / Material Shortage Preference</h3>
+        <p className="muted">If the provided fabric is short for this garment, how would you like to resolve it?</p>
+        <div className="fabric-options">
+          <label className={`radio-card ${fabricShortage === 'send_additional_fabric' ? 'selected' : ''}`}>
+            <input type="radio" name="fabric_shortage" value="send_additional_fabric" checked={fabricShortage === 'send_additional_fabric'} onChange={() => setFabricShortage('send_additional_fabric')} />
+            Customer sends additional fabric
+          </label>
+          <label className={`radio-card ${fabricShortage === 'contact_tailor' ? 'selected' : ''}`}>
+            <input type="radio" name="fabric_shortage" value="contact_tailor" checked={fabricShortage === 'contact_tailor'} onChange={() => setFabricShortage('contact_tailor')} />
+            Customer contacts the tailor
+          </label>
+          <label className={`radio-card ${fabricShortage === 'tailor_adjust' ? 'selected' : ''}`}>
+            <input type="radio" name="fabric_shortage" value="tailor_adjust" checked={fabricShortage === 'tailor_adjust'} onChange={() => setFabricShortage('tailor_adjust')} />
+            Tailor updates/adjusts the order details and price
+          </label>
+        </div>
+      </section>
 
       <section className="order-section">
         <h3>Special Instructions</h3>
@@ -200,15 +208,9 @@ export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, onL
           garmentPrice={rate.price_bdt}
           pickupFee={pickupFee}
           returnFee={returnFee}
-          showOutbound={mode === 'sample'}
-          showCod={showCod}
+          showOutbound={true}
+          showCod={true}
         />
-        {mode === 'manual' && returnMethod !== 'pickup' && (
-          <p className="muted">Outbound delivery: {formatServicePrice(0)} (manual measurements, no fabric pickup needed).</p>
-        )}
-        {mode === 'manual' && returnMethod === 'pickup' && (
-          <p className="muted">Return delivery: {formatServicePrice(0)} (collect from tailor shop).</p>
-        )}
       </section>
 
       <label className="checkbox-label prototype-confirm">
