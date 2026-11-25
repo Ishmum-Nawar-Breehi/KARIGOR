@@ -1,21 +1,27 @@
 import { useState, type FormEvent } from 'react';
-import { ArrowRight, Info, Package } from 'lucide-react';
+import { ArrowRight, Banknote, Info, Package, Smartphone } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatServicePrice } from '@/lib/formatting';
 import type { CourierProvider, FabricShortageResolution, ManualMeasurements, MeasurementMode } from '@/types/order';
 import type { TailorServiceRate } from '@/types/service';
-import { courierFee } from '@/lib/orders';
-import { getMeasurementFields, validateMeasurementValue } from '@/lib/measurements';
+import { courierFee, FABRIC_SHORTAGE_LABELS } from '@/lib/orders';
+import { getMeasurementFields } from '@/lib/measurements';
 import { CourierSelector } from '@/components/CourierSelector';
 import { OrderPriceSummary } from '@/components/OrderPriceSummary';
-import { ManualMeasurementsForm } from '@/components/ManualMeasurementsForm';
+
+type PaymentMethod = 'cod' | 'bkash' | 'nagad';
 
 type Props = {
   tailorId: string;
   tailorName: string;
   rate: TailorServiceRate;
   customerId: string;
+  customerName: string;
+  customerPhone: string;
   initialMode: MeasurementMode;
+  initialMeasurements: ManualMeasurements;
+  initialFabricShortage: FabricShortageResolution;
+  initialFabricArrangement: string | null;
   onLoginRequest: () => void;
   onSuccess: (orderId: string) => void;
 };
@@ -25,59 +31,42 @@ const ALTERATION_SERVICES = new Set([
   'Zipper/Stitching Repair', 'Size Fitting/Resizing',
 ]);
 
-export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, initialMode, onLoginRequest, onSuccess }: Props) {
+export function OrderPlacementForm({
+  tailorId, tailorName, rate, customerId, customerName, customerPhone,
+  initialMode, initialMeasurements, initialFabricShortage, initialFabricArrangement,
+  onLoginRequest, onSuccess,
+}: Props) {
   const [mode] = useState<MeasurementMode>(initialMode);
+  const [measurements] = useState<ManualMeasurements>(initialMeasurements);
+  const [fabricShortage] = useState<FabricShortageResolution>(initialFabricShortage);
+  const [fabricArrangement] = useState<string | null>(initialFabricArrangement);
+  const [name, setName] = useState(customerName);
+  const [phone, setPhone] = useState(customerPhone);
   const [pickupAddress, setPickupAddress] = useState('');
   const [returnSame, setReturnSame] = useState(true);
   const [returnAddress, setReturnAddress] = useState('');
   const [courier, setCourier] = useState<CourierProvider>('pathao');
-  const [sampleConfirmed, setSampleConfirmed] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
   const [notes, setNotes] = useState('');
-  const [measurements, setMeasurements] = useState<ManualMeasurements>({ unit: 'inches' });
-  const [fabricArrangement, setFabricArrangement] = useState('');
-  const [fabricShortage, setFabricShortage] = useState<FabricShortageResolution | ''>('');
-  const [prototypeConfirmed, setPrototypeConfirmed] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const isAlteration = ALTERATION_SERVICES.has(rate.service_name);
   const pickupFee = courierFee(courier, 'outbound');
   const returnFee = courierFee(courier, 'return');
-
-  const pickupLabel = isAlteration ? 'Pickup Address (existing garment)' : 'Pickup Address (unstitched cloth' + (mode === 'sample' ? ' + sample garment' : '') + ')';
-  const packageConfirmText = isAlteration
-    ? 'I will provide the existing garment to be altered.'
-    : mode === 'sample'
-      ? 'I will provide one sample garment and the unstitched fabric needed for this order.'
-      : 'I will provide the unstitched fabric needed for this order.';
+  const total = rate.price_bdt + pickupFee + returnFee;
+  const measurementFields = mode === 'manual' ? getMeasurementFields(rate.service_name) : [];
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!customerId) { onLoginRequest(); return; }
     setError('');
-
+    if (!name.trim()) return setError('Please enter your name.');
+    if (!/^01[0-9]{9}$/.test(phone.trim())) return setError('Please enter a valid 11-digit phone number starting with 01.');
     if (!pickupAddress.trim()) return setError('Please provide a pickup address.');
     if (!courier) return setError('Please select a courier.');
-
-    if (mode === 'sample') {
-      if (!sampleConfirmed) return setError('Please confirm you will provide the sample garment and unstitched fabric.');
-    } else {
-      const fields = getMeasurementFields(rate.service_name);
-      for (const field of fields) {
-        const val = measurements[field.key];
-        if (field.required && (val === null || val === undefined)) return setError(`Please enter your ${field.label}.`);
-        if (val !== null && val !== undefined && !validateMeasurementValue(val, measurements.unit))
-          return setError(`${field.label} must be a positive value within reasonable limits.`);
-      }
-      if (!fabricArrangement) return setError('Please select a fabric arrangement option.');
-    }
-
-    if (!fabricShortage) return setError('Please select a fabric shortage resolution preference.');
-    if (!prototypeConfirmed) return setError('Please confirm you understand this is a prototype order.');
-
     const finalReturnAddress = returnSame ? pickupAddress : returnAddress;
     if (!finalReturnAddress.trim()) return setError('Please provide a return address.');
-
     setSaving(true);
     const result = await supabase.rpc('place_order', {
       p_customer_id: customerId,
@@ -94,7 +83,6 @@ export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, ini
       p_customer_notes: notes.trim() || null,
       p_fabric_shortage_resolution: fabricShortage,
     });
-
     if (result.error || !result.data) {
       setError('We could not place your order. Please try again.');
       setSaving(false);
@@ -106,20 +94,60 @@ export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, ini
   return (
     <form onSubmit={submit} className="order-placement-form">
       <div className="order-header">
-        <p className="eyebrow">Place Your Tailoring Order</p>
+        <p className="eyebrow">Checkout — Pickup &amp; Delivery</p>
         <h2>{tailorName}</h2>
-        <div className="order-service-summary">
-          <div><span>Selected Service</span><strong>{rate.service_name}</strong></div>
-          <div><span>Stitching Price</span><strong>{formatServicePrice(rate.price_bdt)}</strong></div>
-          <div><span>Estimated Completion</span><strong>{rate.turnaround_min_days}–{rate.turnaround_max_days} days</strong></div>
-          <div><span>Measurement Method</span><strong>{mode === 'sample' ? 'Send Sample + Cloth' : 'Manual Measurements'}</strong></div>
-        </div>
       </div>
 
+      <section className="order-section checkout-summary">
+        <h3>Order Summary</h3>
+        <div className="checkout-summary-grid">
+          <div className="summary-row"><span>Service</span><strong>{rate.service_name}</strong></div>
+          <div className="summary-row"><span>Stitching Price</span><strong>{formatServicePrice(rate.price_bdt)}</strong></div>
+          <div className="summary-row"><span>Estimated Completion</span><strong>{rate.turnaround_min_days}–{rate.turnaround_max_days} days</strong></div>
+          <div className="summary-row"><span>Measurement Method</span><strong>{mode === 'sample' ? 'Send Sample + Cloth' : 'Manual Measurements'}</strong></div>
+          {mode === 'manual' && measurementFields.length > 0 && (
+            <div className="summary-row summary-measurements">
+              <span>Measurements ({measurements.unit})</span>
+              <div className="measurement-chips">
+                {measurementFields.map((field) => {
+                  const val = measurements[field.key];
+                  return val !== null && val !== undefined
+                    ? <span key={field.key} className="meas-chip">{field.label}: {val}</span>
+                    : null;
+                })}
+                {measurements.notes && <span className="meas-chip meas-notes">Notes: {measurements.notes}</span>}
+              </div>
+            </div>
+          )}
+          {mode === 'manual' && fabricArrangement && (
+            <div className="summary-row">
+              <span>Fabric Arrangement</span>
+              <strong>{fabricArrangement === 'ask_tailor' ? 'Ask tailor about fabric' : 'Self-arrange with tailor'}</strong>
+            </div>
+          )}
+          <div className="summary-row">
+            <span>Short Fabric Preference</span>
+            <strong>{FABRIC_SHORTAGE_LABELS[fabricShortage]}</strong>
+          </div>
+        </div>
+      </section>
+
       <section className="order-section">
-        <h3>Pickup & Return Delivery</h3>
+        <h3>Customer Information</h3>
+        <div className="checkout-form-grid">
+          <label>Full Name <span className="required-asterisk">*</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="Your name" />
+          </label>
+          <label>Phone Number <span className="required-asterisk">*</span>
+            <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} inputMode="tel" placeholder="01XXXXXXXXX" />
+          </label>
+        </div>
+      </section>
+
+      <section className="order-section">
+        <h3>Pickup &amp; Return Delivery</h3>
         <p className="muted">{isAlteration ? 'Your existing garment will be picked up for alteration and returned via the selected courier.' : 'Your unstitched cloth' + (mode === 'sample' ? ' and sample garment' : '') + ' will be picked up and the completed garment returned via the selected courier.'}</p>
-        <label>{pickupLabel} <span className="required-asterisk">*</span>
+        <label>Pickup Address <span className="required-asterisk">*</span>
           <textarea value={pickupAddress} onChange={(e) => setPickupAddress(e.target.value)} maxLength={300} rows={2} placeholder="House, Road, Area, Dhaka" />
         </label>
         <label className="checkbox-label">
@@ -132,66 +160,30 @@ export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, ini
           </label>
         )}
         <CourierSelector value={courier} onChange={setCourier} />
-        <label className="checkbox-label">
-          <input type="checkbox" checked={sampleConfirmed} onChange={(e) => setSampleConfirmed(e.target.checked)} />
-          {packageConfirmText}
-        </label>
       </section>
 
-      {mode === 'sample' && (
-        <section className="order-section info-panel">
-          <h3><Info size={16} /> How sample-based tailoring works</h3>
-          <ol>
-            <li>Pack a well-fitting sample garment together with the unstitched cloth.</li>
-            <li>Arrange delivery through the selected courier after coordinating with the tailor.</li>
-            <li>The tailor uses your sample to determine measurements.</li>
-            <li>After stitching, your completed garment and original sample are returned together.</li>
-            <li>Pay the agreed amount when receiving the return parcel if the COD arrangement is confirmed.</li>
-          </ol>
-        </section>
-      )}
-
-      {mode === 'manual' && (
-        <>
-          <section className="order-section">
-            <h3>Enter Your Measurements</h3>
-            <ManualMeasurementsForm serviceName={rate.service_name} measurements={measurements} onChange={setMeasurements} />
-          </section>
-
-          <section className="order-section">
-            <h3>Fabric Arrangement</h3>
-            <p className="muted">The listed tailoring price covers stitching only and does not include fabric material costs.</p>
-            <div className="fabric-options">
-              <label className={`radio-card ${fabricArrangement === 'ask_tailor' ? 'selected' : ''}`}>
-                <input type="radio" name="fabric" value="ask_tailor" checked={fabricArrangement === 'ask_tailor'} onChange={() => setFabricArrangement('ask_tailor')} />
-                Ask tailor about fabric availability
-              </label>
-              <label className={`radio-card ${fabricArrangement === 'self_arrange' ? 'selected' : ''}`}>
-                <input type="radio" name="fabric" value="self_arrange" checked={fabricArrangement === 'self_arrange'} onChange={() => setFabricArrangement('self_arrange')} />
-                I will arrange fabric separately with the tailor
-              </label>
-            </div>
-          </section>
-        </>
-      )}
-
       <section className="order-section">
-        <h3>Short Fabric / Material Shortage Preference</h3>
-        <p className="muted">If the provided fabric is short for this garment, how would you like to resolve it?</p>
-        <div className="fabric-options">
-          <label className={`radio-card ${fabricShortage === 'send_additional_fabric' ? 'selected' : ''}`}>
-            <input type="radio" name="fabric_shortage" value="send_additional_fabric" checked={fabricShortage === 'send_additional_fabric'} onChange={() => setFabricShortage('send_additional_fabric')} />
-            Customer sends additional fabric
+        <h3>Payment Method</h3>
+        <div className="payment-method-grid">
+          <label className={`payment-card ${paymentMethod === 'cod' ? 'selected' : ''}`}>
+            <input type="radio" name="payment" value="cod" checked={paymentMethod === 'cod'} onChange={() => setPaymentMethod('cod')} />
+            <div className="payment-icon"><Banknote size={20} /></div>
+            <div className="payment-info"><strong>Cash on Delivery</strong><span>Pay when you receive your garment</span></div>
           </label>
-          <label className={`radio-card ${fabricShortage === 'contact_tailor' ? 'selected' : ''}`}>
-            <input type="radio" name="fabric_shortage" value="contact_tailor" checked={fabricShortage === 'contact_tailor'} onChange={() => setFabricShortage('contact_tailor')} />
-            Customer contacts the tailor
+          <label className={`payment-card ${paymentMethod === 'bkash' ? 'selected' : ''}`}>
+            <input type="radio" name="payment" value="bkash" checked={paymentMethod === 'bkash'} onChange={() => setPaymentMethod('bkash')} />
+            <div className="payment-icon bkash"><Smartphone size={20} /></div>
+            <div className="payment-info"><strong>bKash</strong><span>Send money to 01XXXXXXXXX</span></div>
           </label>
-          <label className={`radio-card ${fabricShortage === 'tailor_adjust' ? 'selected' : ''}`}>
-            <input type="radio" name="fabric_shortage" value="tailor_adjust" checked={fabricShortage === 'tailor_adjust'} onChange={() => setFabricShortage('tailor_adjust')} />
-            Tailor updates/adjusts the order details and price
+          <label className={`payment-card ${paymentMethod === 'nagad' ? 'selected' : ''}`}>
+            <input type="radio" name="payment" value="nagad" checked={paymentMethod === 'nagad'} onChange={() => setPaymentMethod('nagad')} />
+            <div className="payment-icon nagad"><Smartphone size={20} /></div>
+            <div className="payment-info"><strong>Nagad</strong><span>Send money to 01XXXXXXXXX</span></div>
           </label>
         </div>
+        {paymentMethod !== 'cod' && (
+          <p className="payment-note"><Info size={14} /> Mobile payment is a demonstration option. For this prototype, please confirm payment arrangements directly with the tailor.</p>
+        )}
       </section>
 
       <section className="order-section">
@@ -213,15 +205,10 @@ export function OrderPlacementForm({ tailorId, tailorName, rate, customerId, ini
         />
       </section>
 
-      <label className="checkbox-label prototype-confirm">
-        <input type="checkbox" checked={prototypeConfirmed} onChange={(e) => setPrototypeConfirmed(e.target.checked)} />
-        I understand that this is a prototype order. Courier pickup, payment, and tailoring arrangements must be confirmed separately.
-      </label>
-
       {error && <p className="form-error">{error}</p>}
 
-      <button className="button button-primary full-button" disabled={saving}>
-        {saving ? 'Placing Order...' : <>Place Order <ArrowRight size={16} /></>}
+      <button className="button button-primary full-button place-order-button" disabled={saving}>
+        {saving ? 'Placing Order...' : <>Place Order · {formatServicePrice(total)} <ArrowRight size={16} /></>}
       </button>
 
       <p className="prototype-note">
