@@ -34,6 +34,15 @@ export function MyOrdersPage({ customer, onLoginRequest }: Props) {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Polling for auto-refresh when tab is visible
+  useEffect(() => {
+    if (!customer) return;
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load();
+    }, 12000);
+    return () => window.clearInterval(interval);
+  }, [customer, load]);
+
   if (!customer) return <main className="order-page"><div className="container empty-state"><Package size={36} /><h2>Log in to view your orders</h2><p>Use your name and phone number to see your placed orders.</p><button className="button button-primary" onClick={onLoginRequest}>Customer Login</button></div></main>;
   if (loading) return <main className="order-page"><div className="container empty-state"><div className="spinner" /><p>Loading your orders...</p></div></main>;
   if (error) return <main className="order-page"><div className="container empty-state"><SearchX /><h2>Something went wrong</h2><p>{error}</p><button className="button button-primary" onClick={() => void load()}>Retry</button></div></main>;

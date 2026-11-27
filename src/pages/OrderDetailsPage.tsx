@@ -4,9 +4,10 @@ import { ArrowLeft, ArrowRight, MapPin, Phone, RefreshCw, SearchX } from 'lucide
 import { supabase } from '@/lib/supabase';
 import { formatServicePrice } from '@/lib/formatting';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
-import { COURIER_CONFIG, FABRIC_SHORTAGE_LABELS, ORDER_STATUS_FLOW, statusLabel } from '@/lib/orders';
+import { COURIER_CONFIG, FABRIC_SHORTAGE_LABELS, statusLabel } from '@/lib/orders';
 import { formatMeasurementValue } from '@/lib/measurements';
-import type { Order, OrderStatusCode } from '@/types/order';
+import { STATUS_MESSAGES, formatDhakaTime, workflowFor } from '@/lib/statusWorkflow';
+import type { Order, OrderStatusCode, OrderStatusEvent, MeasurementMode } from '@/types/order';
 
 type OrderDetail = Order & { tailors: { shop_name: string; area: string; address: string; phone: string } | null };
 
@@ -14,6 +15,7 @@ export function OrderDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [events, setEvents] = useState<OrderStatusEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -30,7 +32,25 @@ export function OrderDetailsPage() {
     setLoading(false);
   }, [id]);
 
-  useEffect(() => { void load(); }, [load]);
+  const loadEvents = useCallback(async () => {
+    if (!id) return;
+    const { data } = await supabase
+      .from('order_status_events')
+      .select('*')
+      .eq('order_id', id)
+      .order('changed_at', { ascending: true });
+    setEvents((data ?? []) as OrderStatusEvent[]);
+  }, [id]);
+
+  useEffect(() => { void load(); void loadEvents(); }, [load, loadEvents]);
+
+  // Polling for auto-refresh when tab is visible
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') { void load(); void loadEvents(); }
+    }, 12000);
+    return () => window.clearInterval(interval);
+  }, [load, loadEvents]);
 
   if (loading) return <main className="order-page"><div className="container empty-state"><div className="spinner" /><p>Loading order details...</p></div></main>;
   if (error || !order) return <main className="order-page"><div className="container empty-state"><SearchX /><h2>Order not found</h2><p>{error || 'We could not find this order.'}</p><Link className="button button-primary" to="/my-orders">Back to My Orders</Link></div></main>;
@@ -38,32 +58,48 @@ export function OrderDetailsPage() {
   const tailor = order.tailors;
   const isSample = order.measurement_mode === 'sample';
   const courierLabel = order.courier_provider ? COURIER_CONFIG[order.courier_provider]?.label : 'Not selected';
-  const currentStepIndex = ORDER_STATUS_FLOW.indexOf(order.order_status as OrderStatusCode);
+  const currentStatus = order.order_status as OrderStatusCode;
+  const isCancelled = currentStatus === 'cancelled';
+  const workflow = workflowFor(order.measurement_mode as MeasurementMode);
+  const currentStepIndex = isCancelled ? -1 : workflow.indexOf(currentStatus);
 
   return <main className="order-page">
     <div className="container">
       <button className="back-link" onClick={() => navigate('/my-orders')}><ArrowLeft size={16} />Back to My Orders</button>
       <div className="order-detail-header">
         <div><h1>{order.order_reference}</h1><p>Placed on {new Date(order.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p></div>
-        <button className="button button-outline" onClick={() => void load()}><RefreshCw size={15} />Refresh</button>
+        <button className="button button-outline" onClick={() => { void load(); void loadEvents(); }}><RefreshCw size={15} />Refresh</button>
       </div>
 
       <div className="order-status-section">
         <h2>Order Progress</h2>
-        <div className="order-progress">
-          {ORDER_STATUS_FLOW.map((step, index) => {
-            const isCurrent = step === order.order_status;
-            const isPast = index < currentStepIndex;
-            const isCancelled = order.order_status === 'cancelled';
-            return (
-              <div key={step} className={`progress-step ${isCurrent ? 'current' : ''} ${isPast && !isCancelled ? 'past' : ''} ${isCancelled && step !== order.order_status ? 'dimmed' : ''}`}>
-                <span className="progress-dot" />
-                <span className="progress-label">{statusLabel(step)}</span>
-              </div>
-            );
-          })}
-        </div>
-        <div className="current-status-row"><span>Current Status: </span><OrderStatusBadge status={order.order_status as OrderStatusCode} /></div>
+        {isCancelled ? (
+          <div className="status-message cancelled-message">
+            <p>{STATUS_MESSAGES.cancelled}</p>
+          </div>
+        ) : (
+          <>
+            <div className="order-progress">
+              {workflow.map((step, index) => {
+                const isCurrent = step === currentStatus;
+                const isPast = index < currentStepIndex;
+                const isUpcoming = index > currentStepIndex;
+                const stepEvent = events.find((e) => e.status_code === step);
+                return (
+                  <div key={step} className={`progress-step ${isCurrent ? 'current' : ''} ${isPast ? 'past' : ''} ${isUpcoming ? 'upcoming' : ''}`}>
+                    <span className="progress-dot" />
+                    <span className="progress-label">{statusLabel(step)}</span>
+                    {stepEvent && <span className="progress-time">{formatDhakaTime(stepEvent.changed_at)}</span>}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="status-message">
+              <p>{STATUS_MESSAGES[currentStatus]}</p>
+            </div>
+          </>
+        )}
+        <div className="current-status-row"><span>Current Status: </span><OrderStatusBadge status={currentStatus} /></div>
       </div>
 
       <div className="order-detail-grid">
@@ -120,6 +156,27 @@ export function OrderDetailsPage() {
             <p>{order.customer_notes}</p>
           </section>
         )}
+
+        <section className="order-detail-card span-two">
+          <h3>Order Activity</h3>
+          {events.length === 0 ? (
+            <p className="muted">No status events recorded yet.</p>
+          ) : (
+            <div className="activity-timeline">
+              {events.map((event) => (
+                <div className="activity-item" key={event.id}>
+                  <span className="activity-dot" />
+                  <div className="activity-content">
+                    <strong>{statusLabel(event.status_code as OrderStatusCode)}</strong>
+                    <span className="activity-time">{formatDhakaTime(event.changed_at)}</span>
+                    {event.note && <p className="activity-note">{event.note}</p>}
+                    <span className="activity-by">by {event.changed_by}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
 
       {order.is_demo && <p className="prototype-note">This is a demonstration order. No real courier booking, payment, or tailoring arrangement has been made.</p>}

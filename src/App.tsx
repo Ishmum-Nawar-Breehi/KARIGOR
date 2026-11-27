@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, CircleCheck, Images, MapPin, Menu, MessageCircle, Phone, PhoneCall, Search, SearchX, Send, ShoppingBag, Star, UserRound, X, Scissors } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CircleCheck, Images, LayoutDashboard, MapPin, Menu, MessageCircle, Phone, PhoneCall, Search, SearchX, Send, ShoppingBag, Star, UserRound, X, Scissors } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { ServiceRateCard } from '@/components/ServiceRateCard';
 import { formatServicePrice } from '@/lib/formatting';
@@ -14,6 +14,7 @@ import { NewOrderPage } from '@/pages/NewOrderPage';
 import { OrderConfirmationPage } from '@/pages/OrderConfirmationPage';
 import { MyOrdersPage } from '@/pages/MyOrdersPage';
 import { OrderDetailsPage } from '@/pages/OrderDetailsPage';
+import { TailorDashboardPage } from '@/pages/TailorDashboardPage';
 
 const categories = ["Women's Tailoring", "Men's Tailoring", 'Cloth Alteration', 'Custom Stitching'] as const;
 const services = ['Salwar', 'Kameez', 'Salwar Kameez (Full Set)', 'Suit', 'Blazer', 'Panjabi', 'Blouse', 'Shirt', 'Pant/Trouser', 'Bridal / Lehenga', 'Dress Alteration', 'Shirt/Top Alteration', 'Pant/Trouser Hemming', 'Zipper/Stitching Repair', 'Size Fitting/Resizing'] as const;
@@ -87,6 +88,7 @@ function AppShell() {
       <Route path="/order/:id" element={<OrderConfirmationPage />} />
       <Route path="/order-details/:id" element={<OrderDetailsPage />} />
       <Route path="/my-orders" element={<MyOrdersPage customer={customerState.customer} onLoginRequest={() => setLoginOpen(true)} />} />
+      <Route path="/tailor-dashboard" element={<TailorDashboardPage />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
     <Footer onRegister={() => setRegistrationOpen(true)} />
@@ -102,7 +104,7 @@ function Navbar({ customer, onLogin, onLogout, onRegister, mobileOpen, setMobile
   return <header className="navbar"><div className="nav-inner">
     <Link to="/" className="brand" onClick={() => { closeMenu(); window.scrollTo(0, 0); }}><img src="/logo.png" alt="Karigor" /><span className="brand-name">KARIGOR</span></Link>
     <nav className={`nav-links ${mobileOpen ? 'nav-open' : ''}`}>
-      <button onClick={() => go('hero')}>Home</button><button onClick={() => go('directory')}>Find Tailors</button><button onClick={() => go('how-it-works')}>How It Works</button>{customer && <Link className="nav-orders-link" to="/my-orders" onClick={closeMenu}>My Orders</Link>}
+      <button onClick={() => go('hero')}>Home</button><button onClick={() => go('directory')}>Find Tailors</button><button onClick={() => go('how-it-works')}>How It Works</button><Link className="nav-orders-link" to="/tailor-dashboard" onClick={closeMenu}><LayoutDashboard size={15} />Tailor Dashboard</Link>{customer && <Link className="nav-orders-link" to="/my-orders" onClick={closeMenu}>My Orders</Link>}
       <div className="mobile-actions"><button className="button button-primary" onClick={() => { onRegister(); closeMenu(); }}>List Your Shop</button>{customer ? <button className="button button-outline" onClick={() => { onLogout(); closeMenu(); }}>Logout</button> : <button className="button button-outline" onClick={() => { onLogin(); closeMenu(); }}>Customer Login</button>}</div>
     </nav>
     <div className="nav-actions">{customer && <Link className="button button-outline" to="/my-orders"><ShoppingBag size={15} />My Orders</Link>}<button className="button button-primary" onClick={onRegister}>List Your Shop</button>{customer ? <button className="customer-chip" onClick={onLogout}><UserRound size={16} />{customer.name}</button> : <button className="button button-outline" onClick={onLogin}>Customer Login</button>}</div>

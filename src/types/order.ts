@@ -60,3 +60,12 @@ export type Order = {
 export type OrderWithTailor = Order & {
   tailor?: { shop_name: string; area: string; phone: string; address: string };
 };
+
+export type OrderStatusEvent = {
+  id: string;
+  order_id: string;
+  status_code: OrderStatusCode;
+  changed_at: string;
+  changed_by: string;
+  note: string | null;
+};
