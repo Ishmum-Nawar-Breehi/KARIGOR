@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ArrowRight, ArrowLeft, ClipboardList, CircleCheck, RefreshCw,
+  ArrowRight, ArrowLeft, ClipboardList, CircleCheck, MessageCircle, PhoneCall, RefreshCw,
   Scissors, Search, SearchX, ShoppingBag, Store, X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -480,6 +480,7 @@ function OrderDetailsModal({
   const courierLabel = order.courier_provider ? COURIER_CONFIG[order.courier_provider]?.label : 'Not selected';
   const actions = STATUS_ACTIONS[order.order_status as OrderStatusCode] ?? [];
   const isDone = isTerminal(order.order_status as OrderStatusCode);
+  const customerPhone = order.users?.phone && /^01[0-9]{9}$/.test(order.users.phone) ? order.users.phone : null;
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -549,6 +550,23 @@ function OrderDetailsModal({
                 )}
               </div>
             )}
+            <div className="customer-contact-actions">
+              <span className="contact-section-label">Contact Customer</span>
+              <div className="contact-btn-row">
+                {customerPhone ? (
+                  <>
+                    <a className="button button-outline contact-btn" href={`tel:${customerPhone}`}><PhoneCall size={15} />Call Customer</a>
+                    <a className="button button-outline contact-btn" href={`https://wa.me/${customerPhone.replace(/^0/, '880')}`} target="_blank" rel="noopener noreferrer"><MessageCircle size={15} />WhatsApp Customer</a>
+                  </>
+                ) : (
+                  <>
+                    <button className="button button-outline contact-btn" disabled title="No phone number available on this demo record"><PhoneCall size={15} />Call Customer</button>
+                    <button className="button button-outline contact-btn" disabled title="No phone number available on this demo record"><MessageCircle size={15} />WhatsApp Customer</button>
+                  </>
+                )}
+              </div>
+              {!customerPhone && <p className="contact-unavailable-note">No phone number available on this demo record.</p>}
+            </div>
           </section>
 
           <section className="order-detail-card span-two">
